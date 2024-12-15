@@ -31,16 +31,8 @@
 #include <signal.h>
 #include <termios.h>
 
-#include <TROOT.h>
-#include <TH2D.h>
-#include <TFile.h>
-#include <TRandom.h>
-
-int NB_ENABLE = 1;
-int NB_DISABLE = 0;
 
 using namespace std;
-
 
 
 static const int maxchannels = 100;
@@ -48,7 +40,7 @@ static const int maxbins = 256;
 
 typedef struct
 {
-       vector<UInt_t> hitsPerChannel[maxchannels];
+       vector<uint32_t> hitsPerChannel[maxchannels];
 }
 eventdata;
 
@@ -68,59 +60,12 @@ void CtrlCHandler(int sig)
         signal(sig,SIG_IGN);  
 }
 
-int kbhit()
-{
-        struct timeval tv;
-        fd_set fds;
-        tv.tv_sec = 0;
-        tv.tv_usec = 0;
-        FD_ZERO(&fds);
-        FD_SET(STDIN_FILENO, &fds); //STDIN_FILENO is 0
-        select(STDIN_FILENO+1, &fds, NULL, NULL, &tv);
-        return FD_ISSET(STDIN_FILENO, &fds);
-}
-
-void nonblock(int state)
-{
-        struct termios ttystate;
-        
-        //get the terminal state
-        tcgetattr(STDIN_FILENO, &ttystate);
-        
-        if (state==NB_ENABLE)
-        {
-                //turn off canonical mode
-                ttystate.c_lflag &= ~ICANON;
-                //minimum of number input read.
-                ttystate.c_cc[VMIN] = 1;
-        }
-        else if (state==NB_DISABLE)
-        {
-                //turn on canonical mode
-                ttystate.c_lflag |= ICANON;
-        }
-        //set the terminal attributes.
-        tcsetattr(STDIN_FILENO, TCSANOW, &ttystate);
-}
-
-float voltage_from_adc_value(short int adc_value){
-        return (2*adc_value*4.096/32768);
-}
-
-
-
-
-
-
-
-
-
 
  //* * * * * * * * * * * * * * * * * * * * * *//
  //*   P A R A M E T E R   H A N D L I N G   *//
  //* * * * * * * * * * * * * * * * * * * * * *//
 
-enum PNAME {ERROR,TRGCHANNEL,REFCHANNEL,VERBOSE,UNIFORM};
+enum PNAME {ERROR,VERBOSE};
 
 class parameterHandle {
         private:
@@ -129,7 +74,7 @@ class parameterHandle {
                         string sLong;
                         string sDescription;
                         bool moredata;
-                        UInt_t value;
+                        uint32_t value;
                         bool flag;
                         bool allowed;
                 };
@@ -142,7 +87,7 @@ class parameterHandle {
                 PNAME find(string);
                 bool hasMoredata(PNAME);
                 void storeValue(PNAME,string);
-                UInt_t get(PNAME);
+                uint32_t get(PNAME);
                 void set(PNAME);
                 bool isSet(PNAME);
                 void allow(PNAME);
@@ -175,7 +120,7 @@ void parameterHandle::storeValue(PNAME p, string value) {
         }
 }
 
-UInt_t parameterHandle::get(PNAME p) {
+uint32_t parameterHandle::get(PNAME p) {
         return dataset.at(p).value;        
 }
 
@@ -253,38 +198,15 @@ bool parameterHandle::check ()
 
 
 
-
-
-
-Double_t getTrueTime(UInt_t rawTdcValue, UInt_t channel, Double_t calibration[maxchannels][maxbins], bool uniform)
-{
-       Double_t trueTime;
-       
-       if (uniform) 
-       {      //random inside bin
-              trueTime = 0 - ( 2.5*(rawTdcValue >> 7) + 2.5*gRandom->Uniform( calibration[channel][(rawTdcValue & 0x7F)] , calibration[channel][(rawTdcValue & 0x7F)+1]) );
-       }
-       else
-       {      //center of bin
-              trueTime = 0 - ( 2.5*(rawTdcValue >> 7) + 2.5*0.5*(calibration[channel][(rawTdcValue & 0x7F)] + calibration[channel][(rawTdcValue & 0x7F)+1]) );
-       }
-              
-       return trueTime;
-}
-
-
-
-void readData (string filename, UInt_t ref_channel, UInt_t trigger_channel, bool verbose, bool uniform)
+void readData (string filename, bool verbose)
 {
        //Read file and store data in memory
        //----------------------------------
 
        ifstream datfile;
        datfile.open (filename.c_str(), ios::in | ios::binary);
-       
-       TH2* DNLs_raw = new TH2D("DNLs_raw","differential nonlinearity",maxchannels,-0.5,maxchannels-0.5,maxbins,-0.5,maxbins-0.5);
-       TH2* DNLs_merged = new TH2D("DNLs_merged","differential nonlinearity (merged)",maxchannels,-0.5,maxchannels-0.5,maxbins,-0.5,maxbins-0.5);
-     
+
+
        vector<eventdata> events;
        int eventcounter = 0;    
 
@@ -292,21 +214,21 @@ void readData (string filename, UInt_t ref_channel, UInt_t trigger_channel, bool
        while (true)
        {
               //read eventfifo value
-              UInt_t eventfifo = 0;
+              uint32_t eventfifo = 0;
               char eventbuffer[4];
               datfile.read(eventbuffer,4);
               if (!datfile.good()) break;
               
               //data has been stored using little endian-ness
-              eventfifo  = (((UInt_t)eventbuffer[3]) & 0xFF) << 24;
-              eventfifo |= (((UInt_t)eventbuffer[2]) & 0xFF) << 16;
-              eventfifo |= (((UInt_t)eventbuffer[1]) & 0xFF) << 8;
-              eventfifo |= (((UInt_t)eventbuffer[0]) & 0xFF);
+              eventfifo  = (((uint32_t)eventbuffer[3]) & 0xFF) << 24;
+              eventfifo |= (((uint32_t)eventbuffer[2]) & 0xFF) << 16;
+              eventfifo |= (((uint32_t)eventbuffer[1]) & 0xFF) << 8;
+              eventfifo |= (((uint32_t)eventbuffer[0]) & 0xFF);
 
               
               //look into eventfifo
               int entries_found_in_eventfifo = (eventfifo & 0x1fff);
-              UInt_t eventnumber_found_in_eventfifo = ((eventfifo >> 16) & 0xffff);
+              uint32_t eventnumber_found_in_eventfifo = ((eventfifo >> 16) & 0xffff);
 
               if (verbose) printf("\n Eventfifo: 0x%08X (Eventnumber: %d, datawords: %d)\n",eventfifo, eventnumber_found_in_eventfifo, entries_found_in_eventfifo);
 
@@ -326,7 +248,7 @@ void readData (string filename, UInt_t ref_channel, UInt_t trigger_channel, bool
               bool clk_without_hit = false;
               bool unknown = false;
 
-              vector<UInt_t> hitdata;
+              vector<uint32_t> hitdata;
               eventdata thisevent;
               
               //the two 16bit data words are generated as little endian by the FPGA 
@@ -335,13 +257,13 @@ void readData (string filename, UInt_t ref_channel, UInt_t trigger_channel, bool
               for (int i=0; i<entries_found_in_eventfifo*2; i++)
               {
                      //read datafifo value
-                     UInt_t datafifo;
+                     uint32_t datafifo;
                      char databuffer[2];
                      datfile.read(databuffer,2);
                      
                      //again, data is stored with little endian-ness
-                     datafifo = (((UInt_t)databuffer[1]) & 0xFF) << 8;
-                     datafifo |= ((UInt_t)databuffer[0] & 0xFF);
+                     datafifo = (((uint32_t)databuffer[1]) & 0xFF) << 8;
+                     datafifo |= ((uint32_t)databuffer[0] & 0xFF);
                      if (verbose) printf(" 0x%04X : ",datafifo);
                      
 
@@ -373,21 +295,14 @@ void readData (string filename, UInt_t ref_channel, UInt_t trigger_channel, bool
                                    case 0x8: //clk counter
                                    case 0x9: 
                                           if (hits_found == 0) clk_without_hit = true;
-                                          else for( UInt_t h = 0; h < hitdata.size(); h++ ) 
+                                          else for( uint32_t h = 0; h < hitdata.size(); h++ ) 
                                           {                                               
                                                  //recombine coarse time (from clk counter) and fine time (from hitdata)
-                                                 UInt_t time = ((datafifo & 0x1FFF) << 8) | (hitdata[h] & 0xFF);
-                                                 UInt_t channel = ((hitdata[h] >> 8) & 0x7F);
-                                            
-                                                 //add this hit to data for later analysis
-                                                 thisevent.hitsPerChannel[channel].push_back(time);
-                                                 
-                                                 //also build DNL table for each channel, as described in the documentation, only the lowest 7 bits
-                                                 //are used as bin-information, the 8th bit is used as part of the coarse time
-                                                 DNLs_merged->Fill(channel,time & 0x7F); 
-                                                 
-                                                 //for debug purposes, also store raw data
-                                                 DNLs_raw->Fill(channel,time & 0xFF); 
+                                                //  uint32_t time = ((datafifo & 0x1FFF) << 8) | (hitdata[h] & 0xFF);
+                                                //  uint32_t channel = ((hitdata[h] >> 8) & 0x7F);
+
+                                                if (verbose) printf("  hit in ch %02d with bin value %d , clk counts %d",(datafifo & 0x7F00) >> 8, datafifo & 0xFF, datafifo & 0x1FFF);
+
                                           }
                                           hitdata.clear();
                                                  
@@ -424,18 +339,18 @@ void readData (string filename, UInt_t ref_channel, UInt_t trigger_channel, bool
               }
               
               
-              //have there been errors?
-              char error[2048];
+              char *error;
+              error = (char *)malloc(1000);
               sprintf(error,"%s", "");
-              
-              if (header1_not_first || !header1_found) sprintf(error, "%s  - header1 was not (only) the first word\n",error);
-              if (header_has_wrong_entries_count) sprintf(error, "%s  - number of entries found in header1 does not match number of entries found in eventfifo\n",error);
-              if (header2_not_second || !header2_found) sprintf(error, "%s  - header2 was not (only) the second word\n",error);
-              if (trailer_not_last || !trailer_found) sprintf(error, "%s  - trailer was not (only) the last word\n",error);
-              if (trailer_has_wrong_event_number) sprintf(error, "%s  - event number found in trailer does not match event number found in eventfifo\n",error);
-              if (filler_not_before_trailer) sprintf(error, "%s  - filler at wrong location\n",error);
-              if (clk_without_hit) sprintf(error,"%s  - there was a clk counter without any preceding hits\n",error);
-              if (unknown) sprintf(error,"%s  - unknown word found\n",error);
+
+              if (header1_not_first || !header1_found) strcat(error, "  - header1 was not (only) the first word\n");
+              if (header_has_wrong_entries_count) strcat(error, "  - number of entries found in header1 does not match number of entries found in eventfifo\n");
+              if (header2_not_second || !header2_found) strcat(error, "  - header2 was not (only) the second word\n");
+              if (trailer_not_last || !trailer_found) strcat(error, "  - trailer was not (only) the last word\n");
+              if (trailer_has_wrong_event_number) strcat(error, "  - event number found in trailer does not match event number found in eventfifo\n");
+              if (filler_not_before_trailer) strcat(error, "  - filler at wrong location\n");
+              if (clk_without_hit) strcat(error, "  - there was a clk counter without any preceding hits\n");
+              if (unknown) strcat(error, "  - unknown word found\n");
 
               // always report and skip corrupted events
               if (strlen(error)>0) printf(" Event #%d of this dataset might be corrupt, the following error(s) have been found:\n%s",eventcounter,error);
@@ -453,136 +368,10 @@ void readData (string filename, UInt_t ref_channel, UInt_t trigger_channel, bool
               }
               
        }
-       printf("\nProcessed %d events.\n\n",eventcounter);      
-       datfile.close();       
-       
 
-       
-       //Calculate INL and create calibration for each channel
-       //-----------------------------------------------------
-       
-       printf("Calculating calibration table: ");  fflush(stdout); 
-
-       Double_t calibration[maxchannels][maxbins];
-       TH2* INLs = new TH2D("INLs","integrated and normalized nonlinearity",maxchannels,-0.5,maxchannels-0.5,maxbins,-0.5,maxbins-0.5);
-       
-       for (int ch=1; ch<=maxchannels; ch++) 
-       {
-              TH1 *p = DNLs_merged->ProjectionY("ch_slice",ch,ch); //projections start at index 1
-              if (p->GetEntries()>0) 
-              {
-                     Double_t integrated = 0;
-                     Double_t normalisation = p->Integral();
-
-                     for (int bin=1; bin<=maxbins; bin++) 
-                     {
-                            INLs->SetBinContent(ch,bin,integrated);
-                            calibration[ch-1][bin-1] = integrated;
-
-                            Double_t value = p->GetBinContent(bin);
-                            integrated += (value/normalisation);
-                     }
-              }
-              delete p;
-       }	
-       printf("Done.\n");      
-       
-       
-       
-       //Simple data analysis (time vs refchannel)
-       //-----------------------------------------
-       printf("Analysing data: "); fflush(stdout); 
-       
-	//desired binning in ns
-	Double_t hist_bin_size = 0.010;
-	
-	//desired histogram limit values in ns
-	Double_t upper = +250; 
-	Double_t lower = -1250; 
-		
-	//calculate histogram limits from desired values
-	int bins = round((upper-lower)/hist_bin_size);
-	Double_t upperlimit = upper+0.5*hist_bin_size;
-	Double_t lowerlimit = upperlimit-(bins*hist_bin_size);
-       
-	TH2* tdc_times = new TH2D("tdc_times","TDC times (calibrated under white noise assumption)",maxchannels,-0.5,maxchannels-0.5,bins,lowerlimit,upperlimit);
-	TH2* diff_to_ref_time = new TH2D("diff_to_ref_time",TString::Format("Difference to Channel %i",ref_channel),maxchannels,-0.5,maxchannels-0.5,bins,lowerlimit,upperlimit);
-	TH2* hitsperevent = new TH2D("hitsperevent","Hits per Event",maxchannels,-0.5,maxchannels-0.5,40,-0.5,39.5);
-
-       bool errorOnTriggerTime = false;
-       bool errorOnRefTime = false;
-      
-       for(vector<eventdata>::iterator event = events.begin(); event != events.end(); event++) 
-       {
-              //get trigger-time (first hit in trigger channel)
-              Double_t triggerTime = 0;
-              if (event->hitsPerChannel[trigger_channel].size() == 1) triggerTime = getTrueTime(event->hitsPerChannel[trigger_channel].at(0),trigger_channel,calibration, uniform);
-              else {errorOnTriggerTime = true; continue;}
-              
-              //get ref-time (first hit in ref channel)
-              Double_t refTime = 0;
-              if (event->hitsPerChannel[ref_channel].size() > 0) refTime = getTrueTime(event->hitsPerChannel[ref_channel].at(0),ref_channel,calibration,uniform);
-              else {errorOnRefTime = true; continue;}
-              
-              for (UInt_t ch = 0; ch < 100; ch++)
-              {
-                     //Fill hits per event
-                     hitsperevent->Fill(ch,event->hitsPerChannel[ch].size());
-
-                     if (event->hitsPerChannel[ch].size() > 0)
-                     {                            
-                            int nr = 0;
-                            for (vector<UInt_t>::iterator hit = event->hitsPerChannel[ch].begin(); hit != event->hitsPerChannel[ch].end(); hit++)
-                            {
-                                   //calculate time in ns for this hit
-                                   UInt_t rawTdcValue = *hit;
-                                   Double_t trueTime = getTrueTime(rawTdcValue, ch, calibration, uniform);                                   
-                                   
-                                   //fill diff_to_ref_time using only the first hit per event (no need to do trigger time correction here)
-                                   if (nr == 0 && ch == ref_channel) trueTime = refTime; //fix uniform randomization 
-                                   if (nr == 0) diff_to_ref_time->Fill(ch, trueTime-refTime);
-                                   
-                                   //fill trigger corrected tdc_times
-                                   if (nr == 0 && ch == trigger_channel) trueTime = triggerTime; //fix uniform randomization
-                                   tdc_times->Fill(ch, trueTime-triggerTime);
-                                   
-                                   nr++;
-                            }                            
-                     }
-              }
-       }
-       
-       printf("Done.\n");      
-
-       if (errorOnTriggerTime) printf("  ErrorOnTriggerTime: At least one event has been skipped, because the triggerChannel %d did not have exactly one hit. Something is wrong.\n",trigger_channel);
-       if (errorOnRefTime) printf("  ErrorOnRefTime: At least one event has been skipped, because the refChannel %d did not have a hit.\n",ref_channel);
-       
-
-       
-       
-       
-       
-       
-       
-       
-       
-       
-       //save all root objects to a root file
-       
-       string rootfilename = filename+".root";
-       printf("Saving ROOT objects to %s: ",rootfilename.c_str()); fflush(stdout); 
-
-       TFile rootfile(rootfilename.c_str(),"recreate");
-       DNLs_raw->Write();
-       DNLs_merged->Write();
-       INLs->Write();
-       tdc_times->Write();
-       diff_to_ref_time->Write();
-       hitsperevent->Write();
-       rootfile.Close();       
-
+       datfile.close();
+       printf("\nProcessed %d events.\n\n",eventcounter);        
        printf("Done.\n\n");      
-       
 }
 
 
@@ -630,16 +419,13 @@ int main (int argc, char **argv)
         parameterHandle *params = new parameterHandle();
         params->setIntro("\tusage: jAnalyzer filename [options]");
         params->add(ERROR              ,false ,""              ,""     ,"");
-        params->add(TRGCHANNEL         ,true  ,"--triggerchannel"  ,"-t"   ,"sets the trigger channel in this dataset");
-        params->add(REFCHANNEL         ,true  ,"--refchannel    "  ,"-r"   ,"sets the refchannel in this dataset");
         params->add(VERBOSE            ,false ,"--verbose       "  ,"-v"   ,"explain each dataword found");
-        params->add(UNIFORM            ,false ,"--uniformbins   "  ,"-u"   ,"randomize bin times uniformly to avoid binning artifacts");
         
         
         
         //Get all parameters - at this point we check only, if it is a valid parameter, not if it is valid for a certain subroutine
         int valid = 0;
-        if(argc > 2) 
+        if(argc > 1) 
         {
                 for (int i=2;i<argc;i++) 
                 {
@@ -656,20 +442,13 @@ int main (int argc, char **argv)
                         else { valid = 0; break; } //as soon as we find an invalid parameter, abort
                 }                      
         }              
-        if (argc <= 2 || valid == 0) params->set(ERROR); 
-
-        params->allow(TRGCHANNEL);
-        params->allow(REFCHANNEL);                       
-        params->allow(VERBOSE);
-        params->allow(UNIFORM);
-        params->setOutro("The refchannel is a required option.");
-        if (!params->isSet(REFCHANNEL)) params->set(ERROR); 
-       
+        if (argc <= 1 || valid == 0) params->set(ERROR); 
+                    
+        params->allow(VERBOSE);       
         
         if (params->check()) 
-        {
-                if (!params->isSet(TRGCHANNEL)) params->storeValue(TRGCHANNEL,string("0"));                                
-                readData (filename, params->get(REFCHANNEL), params->get(TRGCHANNEL), params->isSet(VERBOSE), params->isSet(UNIFORM));
+        {                           
+                readData (filename, params->isSet(VERBOSE));
         }
            
         return 0;
